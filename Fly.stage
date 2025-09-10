@@ -1,0 +1,233 @@
+-- Fly + Stage Next (Final Safe + Manual Delay)
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local remote = game:GetService("ReplicatedStorage"):WaitForChild("MainRemote")
+
+-- GUI lama hapus
+if player.PlayerGui:FindFirstChild("SimpleFlyGUI") then
+    player.PlayerGui.SimpleFlyGUI:Destroy()
+end
+
+local screenGui = Instance.new("ScreenGui", player.PlayerGui)
+screenGui.Name = "SimpleFlyGUI"
+
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Size = UDim2.new(0,180,0,300)
+mainFrame.Position = UDim2.new(0,20,0,120)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+mainFrame.Active = true
+mainFrame.Draggable = true
+
+-- HEADER
+local header = Instance.new("Frame", mainFrame)
+header.Size = UDim2.new(1,0,0,28)
+header.BackgroundColor3 = Color3.fromRGB(45,45,45)
+
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(1,-56,1,0)
+title.Position = UDim2.new(0,5,0,0)
+title.BackgroundTransparency = 1
+title.Text = "Fly + Stage"
+title.TextColor3 = Color3.fromRGB(255,255,255)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+
+local minimizeBtn = Instance.new("TextButton", header)
+minimizeBtn.Size = UDim2.new(0,24,0,24)
+minimizeBtn.Position = UDim2.new(1,-52,0,2)
+minimizeBtn.Text = "-"
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(70,70,70)
+
+local closeBtn = Instance.new("TextButton", header)
+closeBtn.Size = UDim2.new(0,24,0,24)
+closeBtn.Position = UDim2.new(1,-26,0,2)
+closeBtn.Text = "X"
+closeBtn.BackgroundColor3 = Color3.fromRGB(150,50,50)
+closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+
+local content = Instance.new("Frame", mainFrame)
+content.Size = UDim2.new(1,0,1,-28)
+content.Position = UDim2.new(0,0,0,28)
+content.BackgroundTransparency = 1
+
+--------------------------------------------------
+-- === FLY ===
+--------------------------------------------------
+local flyBtn = Instance.new("TextButton", content)
+flyBtn.Size = UDim2.new(1,-20,0,34)
+flyBtn.Position = UDim2.new(0,10,0,10)
+flyBtn.Text = "Fly: OFF"
+
+local upBtn = Instance.new("TextButton", content)
+upBtn.Size = UDim2.new(0.5,-12,0,42)
+upBtn.Position = UDim2.new(0,10,0,54)
+upBtn.Text = "▲"
+upBtn.Font = Enum.Font.SourceSansBold
+upBtn.TextSize = 28
+
+local downBtn = Instance.new("TextButton", content)
+downBtn.Size = UDim2.new(0.5,-12,0,42)
+downBtn.Position = UDim2.new(0.5,2,0,54)
+downBtn.Text = "▼"
+downBtn.Font = Enum.Font.SourceSansBold
+downBtn.TextSize = 28
+
+local flying = false
+local verticalSpeed = 0
+local climbSpeed = 40
+local bodyVel, hrp
+
+local function enableFly()
+    if flying then return end
+    local char = player.Character or player.CharacterAdded:Wait()
+    hrp = char:WaitForChild("HumanoidRootPart")
+    bodyVel = Instance.new("BodyVelocity")
+    bodyVel.MaxForce = Vector3.new(0,1e5,0)
+    bodyVel.P = 10000
+    bodyVel.Velocity = Vector3.new()
+    bodyVel.Parent = hrp
+    flying = true
+    flyBtn.Text = "Fly: ON"
+end
+
+local function disableFly()
+    flying = false
+    verticalSpeed = 0
+    if bodyVel then bodyVel:Destroy() bodyVel = nil end
+    flyBtn.Text = "Fly: OFF"
+end
+
+flyBtn.MouseButton1Click:Connect(function()
+    if flying then disableFly() else enableFly() end
+end)
+
+upBtn.MouseButton1Down:Connect(function() verticalSpeed = climbSpeed end)
+upBtn.MouseButton1Up:Connect(function() verticalSpeed = 0 end)
+downBtn.MouseButton1Down:Connect(function() verticalSpeed = -climbSpeed end)
+downBtn.MouseButton1Up:Connect(function() verticalSpeed = 0 end)
+
+RunService.RenderStepped:Connect(function()
+    if flying and bodyVel then
+        bodyVel.Velocity = Vector3.new(0, verticalSpeed, 0)
+    end
+end)
+
+--------------------------------------------------
+-- === STAGE CONTROL (SAFE MODE + MANUAL DELAY) ===
+--------------------------------------------------
+local autoRunning = false
+local autoDelay = 5 -- default delay
+
+local function getCurrentStage()
+    local ls = player:FindFirstChild("leaderstats")
+    if ls and ls:FindFirstChild("Stage") then
+        return tonumber(ls.Stage.Value) or 0
+    end
+    return 0
+end
+
+local function safeGotoStage(stage)
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+
+    local folders = {"Stages","Checkpoints","ObbyStages","StageParts"}
+    for _,fname in ipairs(folders) do
+        local f = workspace:FindFirstChild(fname)
+        if f and f:FindFirstChild(tostring(stage)) then
+            local part = f[tostring(stage)]
+            local touchPart = part:IsA("BasePart") and part or part:FindFirstChildWhichIsA("BasePart")
+            if touchPart then
+                hrp.CFrame = touchPart.CFrame + Vector3.new(0,5,0)
+
+                firetouchinterest(hrp, touchPart, 0)
+                task.wait(0.2)
+                firetouchinterest(hrp, touchPart, 1)
+
+                local before = getCurrentStage()
+                local deadline = tick() + 3
+                repeat task.wait(0.2) until getCurrentStage() ~= before or tick() > deadline
+
+                if getCurrentStage() == before then
+                    pcall(function()
+                        remote:FireServer({Request="SetStage", Stage = stage})
+                    end)
+                end
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- tombol Next
+local nextBtn = Instance.new("TextButton", content)
+nextBtn.Size = UDim2.new(1,-20,0,34)
+nextBtn.Position = UDim2.new(0,10,0,100)
+nextBtn.Text = "Next Stage"
+
+nextBtn.MouseButton1Click:Connect(function()
+    local now = getCurrentStage()
+    safeGotoStage(now + 1)
+end)
+
+-- tombol Auto
+local autoBtn = Instance.new("TextButton", content)
+autoBtn.Size = UDim2.new(1,-20,0,34)
+autoBtn.Position = UDim2.new(0,10,0,140)
+autoBtn.Text = "Auto: OFF"
+
+-- input delay manual
+local delayBox = Instance.new("TextBox", content)
+delayBox.Size = UDim2.new(1,-20,0,28)
+delayBox.Position = UDim2.new(0,10,0,180)
+delayBox.Text = tostring(autoDelay)
+delayBox.PlaceholderText = "Delay (detik)"
+delayBox.TextColor3 = Color3.new(1,1,1)
+delayBox.BackgroundColor3 = Color3.fromRGB(50,50,50)
+
+delayBox.FocusLost:Connect(function(enterPressed)
+    local num = tonumber(delayBox.Text)
+    if num and num > 0 then
+        autoDelay = num
+    else
+        delayBox.Text = tostring(autoDelay)
+    end
+end)
+
+autoBtn.MouseButton1Click:Connect(function()
+    autoRunning = not autoRunning
+    autoBtn.Text = autoRunning and "Auto: ON" or "Auto: OFF"
+    if autoRunning then
+        task.spawn(function()
+            while autoRunning do
+                local now = getCurrentStage()
+                safeGotoStage(now + 1)
+                task.wait(autoDelay) -- pake delay input
+            end
+        end)
+    end
+end)
+
+--------------------------------------------------
+-- HEADER BTN
+--------------------------------------------------
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui:Destroy()
+    if bodyVel then bodyVel:Destroy() end
+end)
+
+local minimized = false
+minimizeBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    content.Visible = not minimized
+    if minimized then
+        minimizeBtn.Text = "+"
+        mainFrame.Size = UDim2.new(0,180,0,28)
+    else
+        minimizeBtn.Text = "-"
+        mainFrame.Size = UDim2.new(0,180,0,300)
+    end
+end)
